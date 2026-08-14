@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+# coding=utf-8
+
+__author__ = "Jean-Michel Garant"
+__copyright__ = "Copyright (C) 2022, " + __author__
+__email__ = "jmgarant@bcgsc.ca"
+__license__ = "GPLv3"
+
+include: "common.snake"
+
+rule gatk_haplotypecaller:
+    """
+    Use Broad's GATK to call variants from input CRAMs.
+    """
+    input:
+        unpack(samples_table_cram),
+        ref_fasta = config["reference"]["fasta"],
+        split_list = os.path.join(config["GATK"]["interval_lists"],
+                                  "{chrm}",
+                                  ),
+    output:
+        gvcf = temp(os.path.join(config["tmp_dir"],
+                                 "data",
+                                 "{sample}",
+                                 "gatk-v4.2.5.0",
+                                 "split",
+                                 "{sample}-{chrm}.g.vcf.gz",
+                                 )),
+        gvcf_index = temp(os.path.join(config["tmp_dir"],
+                                       "data",
+                                       "{sample}",
+                                       "gatk-v4.2.5.0",
+                                       "split",
+                                       "{sample}-{chrm}.g.vcf.gz.tbi",
+                                       )),
+    log:
+        gatk_hapcall = os.path.join("log",
+                                    "{sample}",
+                                    "gatk-v4.2.5.0",
+                                    "{sample}-{chrm}-_gatk_hapcall.log",
+                                    ),
+    params:
+        dragen = config["GATK"]["dragen_mode"]
+    benchmark:
+        os.path.join("log",
+                     "{sample}",
+                     "gatk-v4.2.5.0",
+                     "{sample}-{chrm}_gatk_hapcall_benchmark.log")
+    container:
+        config["broad_gatk"],
+    resources:
+        mem_mb = config["GATK"]["mem"],
+        time_limit = config["GATK"]["time_limit"],
+    threads:
+        config["GATK"]["threads"],
+    shell:
+        """
+        /gatk/gatk \
+          --java-options '-Xmx{resources.mem_mb}M -XX:+UseParallelGC -XX:ParallelGCThreads={threads} -XX:+CMSParallelRemarkEnabled' \
+          HaplotypeCaller \
+          --input {input.cram} \
+          --reference {input.ref_fasta} \
+          --output {output.gvcf} \
+          --intervals {input.split_list} \
+          --emit-ref-confidence GVCF \
+          --max-alternate-alleles 6 \
+          --read-filter OverclippedReadFilter \
+          --output-mode EMIT_VARIANTS_ONLY \
+          --pair-hmm-implementation AVX_LOGLESS_CACHING_OMP \
+          --native-pair-hmm-threads {threads} \
+          --dragen-mode {params.dragen} \
+          --annotation-group AS_StandardAnnotation \
+          2> {log.gatk_hapcall}
+        """
+
+rule gatk_haplotypecaller_merge:
+    """
+    Merge split GVCFs into a per-sample GVCF.
+    """
+    input:
+        gvcf = expand(os.path.join(config["tmp_dir"],
+                                          "data",
+                                          "{{sample}}",
+                                          "gatk-v4.2.5.0",
+                                          "split",
+                                          "{{sample}}-{chrm}.g.vcf.gz",
+                                          ),
+                             chrm=os.listdir(config["GATK"]["interval_lists"]),
+                             ),
+        gvcf_index = expand(os.path.join(config["tmp_dir"],
+                                                "data",
+                                                "{{sample}}",
+                                                "gatk-v4.2.5.0",
+                                                "split",
+                                                "{{sample}}-{chrm}.g.vcf.gz.tbi",
+                                                ),
+                                   chrm=os.listdir(config["GATK"]["interval_lists"]),
+                                   ),
+    output:
+        gvcf = protected(os.path.join(config["output_dir"],
+                                      "{sample}",
+                                      "{sample}.g.vcf.gz",
+                                      )),
+        gvcf_index = protected(os.path.join(config["output_dir"],
+                                            "{sample}",
+                                            "{sample}.g.vcf.gz.tbi",
+                                            )),
+    log:
+        merge = os.path.join("log",
+                             "{sample}",
+                             "gatk-v4.2.5.0",
+                             "{sample}_gatk_hapcall_merge.log",
+                             ),
+    benchmark:
+        os.path.join("log",
+                     "{sample}",
+                     "gatk-v4.2.5.0",
+                     "{sample}_gatk_hapcall_merge_benchmark.log")
+    container:
+        config["hostseq_utilities"],
+    resources:
+        mem_mb = config["GATK"]["mem"],
+        time_limit = config["GATK"]["time_limit"],
+    threads:
+        config["GATK"]["threads"],
+    shell:
+        """
+        /opt/bcftools-1.14/bcftools concat {input.gvcf} \
+          --output {output.gvcf} \
+          --output-type z \
+          --threads {threads} \
+          --allow-overlaps \
+          2> {log.merge} && \
+        /opt/bcftools-1.14/bcftools index {output.gvcf} \
+          --tbi \
+          --threads {threads}
+        """

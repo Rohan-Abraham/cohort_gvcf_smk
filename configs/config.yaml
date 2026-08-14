@@ -1,0 +1,28 @@
+# References
+reference:
+    fasta: /projects/HostSeq/align_fasta_ref/Genome_England/GRCh38_full_analysis_set_plus_decoy_hla.fa
+
+# Tools specifics
+GATK:
+    dragen_mode: true
+    threads: 8
+    mem: 48000 # MB
+    time_limit: 10080 # mins
+    interval_lists: configs/chr_intervals/
+samtools:
+    threads: 8
+    mem: 2048 # MB
+    time_limit: 7200 # mins
+picard:
+    mem: 340000 # MB
+
+# Paths
+tmp_dir: /projects/HostSeq/HostSeq_ext/scratch/icgc-argo
+output_dir: /projects/HostSeq/HostSeq_ext/data/outputs/ICGC-ARGO/gatk-v4.2.5.0
+
+# Containers
+hostseq_utilities: docker://jmgarant/hostseq_utils:0.3
+broad_gatk: docker://broadinstitute/gatk:4.2.5.0
+
+# Samples input
+samples: configs/samples.csv

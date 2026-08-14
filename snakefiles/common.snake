@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+# coding=utf-8
+
+"""
+Input functions for *.snake rules.
+"""
+
+__author__ = "Jean-Michel Garant"
+__copyright__ = "Copyright (C) 2022, " + __author__
+__email__ = "jmgarant@bcgsc.ca"
+__license__ = "GPLv3"
+
+import os
+from csv import reader
+
+configfile: "configs/config.yaml"
+
+# Default tmp_dir in the current directory.
+if type(config["tmp_dir"]) == type(None):
+    config["tmp_dir"] = ""
+
+
+def samples_table_cram(wildcards, keys_list=False):
+    samples = {}
+    with open(config["samples"], "r") as handle:
+        iterator = reader(handle, delimiter=",")
+        next(iterator, None)
+        for row in iterator:
+            sample = os.path.basename(row[0]).split(".")[0]
+            samples[sample] = row[0]
+    if keys_list:
+        return sorted(samples.keys())
+    return {
+        "cram": samples[wildcards.sample],
+        "crai": samples[wildcards.sample] + ".crai",
+    }
