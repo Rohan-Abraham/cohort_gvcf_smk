@@ -1,0 +1,5 @@
+venv/
+log/
+.snakemake/
+__pycache__/
+*.pyc

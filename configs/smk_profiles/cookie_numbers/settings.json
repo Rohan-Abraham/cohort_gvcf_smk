@@ -1,5 +1,5 @@
 {
-    "SBATCH_DEFAULTS": "qos=prod job-name=smk-{rule}-{wildcards} output=log/slurm/{rule}_{wildcards}.out error=log/slurm/{rule}_{wildcards}.err exclude=s[101-114]",
+    "SBATCH_DEFAULTS": "qos=general job-name=smk-{rule}-{wildcards} output=log/slurm/{rule}_{wildcards}.out error=log/slurm/{rule}_{wildcards}.err exclude=s[101-114]",
     "CLUSTER_NAME": "",
     "CLUSTER_CONFIG": "",
     "ADVANCED_ARGUMENT_CONVERSION": "no"

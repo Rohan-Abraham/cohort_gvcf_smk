@@ -11,6 +11,7 @@ __email__ = "jmgarant@bcgsc.ca"
 __license__ = "GPLv3"
 
 import os
+import re
 from csv import reader
 
 configfile: "configs/config.yaml"
@@ -19,6 +20,23 @@ configfile: "configs/config.yaml"
 if type(config["tmp_dir"]) == type(None):
     config["tmp_dir"] = ""
 
+# ICGC-ARGO CRAM filenames follow
+# {project}.{donor_id}.{sample_id}.wgs.{date}.aln.cram
+# e.g. APGI-AU.DO32825.SA407795.wgs.20210617.aln.cram
+# The project code is shared by every sample in a project, so it cannot be
+# used as a unique sample identifier (unlike HostSeq's naming convention).
+# Use the donor+sample IDs (e.g. "DO32825.SA407795") instead.
+DONOR_SAMPLE_RE = re.compile(r"\.(DO[A-Za-z0-9]+\.SA[A-Za-z0-9]+)\.")
+
+
+def _sample_id_from_cram(cram_path):
+    basename = os.path.basename(cram_path)
+    match = DONOR_SAMPLE_RE.search(basename)
+    if match:
+        return match.group(1)
+    # Fallback for filenames that don't match the expected ICGC-ARGO pattern.
+    return basename.split(".")[0]
+
 
 def samples_table_cram(wildcards, keys_list=False):
     samples = {}
@@ -26,7 +44,7 @@ def samples_table_cram(wildcards, keys_list=False):
         iterator = reader(handle, delimiter=",")
         next(iterator, None)
         for row in iterator:
-            sample = os.path.basename(row[0]).split(".")[0]
+            sample = _sample_id_from_cram(row[0])
             samples[sample] = row[0]
     if keys_list:
         return sorted(samples.keys())
