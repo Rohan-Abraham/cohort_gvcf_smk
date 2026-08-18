@@ -3,7 +3,7 @@
 #SBATCH --output=log/sbatch/smk-%j.out
 #SBATCH --time=50-00:00:00
 #SBATCH --mail-user=rabraham@bcgsc.ca
-#SBATCH --qos=general
+#SBATCH --qos=prod
 #SBATCH --exclude=s[101-114]
 
 cd /home/rabraham/icgc_smk && \
