@@ -4,11 +4,16 @@ reference:
 
 # Tools specifics
 GATK:
-    dragen_mode: true
-    threads: 8
-    mem: 48000 # MB
-    time_limit: 10080 # mins
-    interval_lists: configs/chr_intervals/
+    haplotypecaller:
+        dragen_mode: true
+        threads: 6
+        mem: 26000 # MB
+        time_limit: 2880 # mins
+        interval_lists: configs/chr_intervals/
+    merge:
+        threads: 1
+        mem: 2000 # MB
+        time_limit: 180 # mins
 samtools:
     threads: 8
     mem: 2048 # MB

@@ -15,7 +15,7 @@ rule gatk_haplotypecaller:
     input:
         unpack(samples_table_cram),
         ref_fasta = config["reference"]["fasta"],
-        split_list = os.path.join(config["GATK"]["interval_lists"],
+        split_list = os.path.join(config["GATK"]["haplotypecaller"]["interval_lists"],
                                   "{chrm}",
                                   ),
     output:
@@ -40,7 +40,7 @@ rule gatk_haplotypecaller:
                                     "{sample}-{chrm}-_gatk_hapcall.log",
                                     ),
     params:
-        dragen = config["GATK"]["dragen_mode"]
+        dragen = config["GATK"]["haplotypecaller"]["dragen_mode"]
     benchmark:
         os.path.join("log",
                      "{sample}",
@@ -49,10 +49,10 @@ rule gatk_haplotypecaller:
     container:
         config["broad_gatk"],
     resources:
-        mem_mb = config["GATK"]["mem"],
-        time_limit = config["GATK"]["time_limit"],
+        mem_mb = config["GATK"]["haplotypecaller"]["mem"],
+        time_limit = config["GATK"]["haplotypecaller"]["time_limit"],
     threads:
-        config["GATK"]["threads"],
+        config["GATK"]["haplotypecaller"]["threads"],
     shell:
         """
         /gatk/gatk \
@@ -85,7 +85,7 @@ rule gatk_haplotypecaller_merge:
                                           "split",
                                           "{{sample}}-{chrm}.g.vcf.gz",
                                           ),
-                             chrm=os.listdir(config["GATK"]["interval_lists"]),
+                             chrm=os.listdir(config["GATK"]["haplotypecaller"]["interval_lists"]),
                              ),
         gvcf_index = expand(os.path.join(config["tmp_dir"],
                                                 "data",
@@ -94,7 +94,7 @@ rule gatk_haplotypecaller_merge:
                                                 "split",
                                                 "{{sample}}-{chrm}.g.vcf.gz.tbi",
                                                 ),
-                                   chrm=os.listdir(config["GATK"]["interval_lists"]),
+                                   chrm=os.listdir(config["GATK"]["haplotypecaller"]["interval_lists"]),
                                    ),
     output:
         gvcf = protected(os.path.join(config["output_dir"],
@@ -119,10 +119,10 @@ rule gatk_haplotypecaller_merge:
     container:
         config["hostseq_utilities"],
     resources:
-        mem_mb = config["GATK"]["mem"],
-        time_limit = config["GATK"]["time_limit"],
+        mem_mb = config["GATK"]["merge"]["mem"],
+        time_limit = config["GATK"]["merge"]["time_limit"],
     threads:
-        config["GATK"]["threads"],
+        config["GATK"]["merge"]["threads"],
     shell:
         """
         /opt/bcftools-1.14/bcftools concat {input.gvcf} \
