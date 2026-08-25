@@ -15,14 +15,23 @@ jobid = sys.argv[1]
 
 cluster = CookieCutter.get_cluster_option()
 
+status = None
+
 for i in range(STATUS_ATTEMPTS):
     try:
         sacct_res = sp.check_output(shlex.split(f"sacct {cluster} -P -b -j {jobid} -n"))
         res = {
             x.split("|")[0]: x.split("|")[1]
             for x in sacct_res.decode().strip().split("\n")
+            if x
         }
-        break
+        # sacct can succeed but not yet have ingested this jobid (race
+        # condition right after submission) -- only treat this as a
+        # resolved status if the jobid is actually present, otherwise
+        # fall through to scontrol/retry instead of crashing below.
+        if jobid in res:
+            status = res[jobid]
+            break
     except sp.CalledProcessError as e:
         logger.error("sacct process error")
         logger.error(e)
@@ -30,23 +39,28 @@ for i in range(STATUS_ATTEMPTS):
         logger.error(e)
         pass
     # Try getting job with scontrol instead in case sacct is misconfigured
+    # or hasn't ingested the job yet.
     try:
         sctrl_res = sp.check_output(
             shlex.split(f"scontrol {cluster} -o show job {jobid}")
         )
         m = re.search(r"JobState=(\w+)", sctrl_res.decode())
-        res = {jobid: m.group(1)}
-        break
+        if m:
+            status = m.group(1)
+            break
     except sp.CalledProcessError as e:
         logger.error("scontrol process error")
         logger.error(e)
-        if i >= STATUS_ATTEMPTS - 1:
-            print("failed")
-            exit(0)
-        else:
-            time.sleep(1)
 
-status = res[jobid]
+    if i >= STATUS_ATTEMPTS - 1:
+        print("failed")
+        exit(0)
+    else:
+        time.sleep(1)
+
+if status is None:
+    print("failed")
+    exit(0)
 
 if status == "BOOT_FAIL":
     print("failed")
