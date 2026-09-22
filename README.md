@@ -1,28 +1,123 @@
-# icgc_smk
+# cohort_gvcf_smk
 
-Snakemake pipeline for ICGC-ARGO CRAM inputs.
+Snakemake workflow for producing cohort-compatible, per-sample gVCFs. The
+default path calls variants from an existing compatible CRAM or BAM. Optional
+alignment modes support projects whose source alignments are not compatible
+with the cohort reference and alignment method.
 
-## What it does
+Each sample produces one indexed gVCF. This workflow does not combine samples
+or perform joint genotyping.
 
-- Takes CRAM files directly as input.
-- Runs GATK HaplotypeCaller per chromosome.
-- Merges split GVCFs into one per-sample GVCF.
-- Adds `--annotation-group AS_StandardAnnotation` for allele-specific annotations.
+## Processing modes
 
-## Layout
+| `input_mode` | Input | Processing |
+| --- | --- | --- |
+| `call_only` | Compatible CRAM or BAM | HaplotypeCaller and gVCF merge only (default) |
+| `realign_bam` | BAM aligned to another reference or with another aligner | Recover paired reads, BWA-MEM alignment, duplicate marking, tag restoration, BQSR, and variant calling |
+| `align_fastq` | Paired FASTQs | BWA-MEM alignment, duplicate marking, tag restoration, BQSR, and variant calling |
 
-- `snakefiles/common.snake` — sample-sheet helpers.
-- `snakefiles/variant.snake` — CRAM-to-GVCF rules.
-- `snakefiles/default.snake` — default targets.
-- `configs/config.yaml` — reference, paths, containers, resources.
+The alignment path uses BWA-MEM 0.7.17-r1188 against
+`GRCh38_full_analysis_set_plus_decoy_hla.fa`. Variant calling uses GATK 4.2.5.0
+HaplotypeCaller in DRAGEN mode with `AS_StandardAnnotation`, matching the
+ICGC-ARGO gVCF calling configuration.
 
-## Sample sheet
+Alignment BAMs, their indexes, recovered FASTQs, BQSR tables, and per-interval
+gVCFs are temporary Snakemake outputs. The final gVCF and index, alignment QC,
+duplicate metrics, rule logs, and benchmarks are retained. The input BAM is
+never modified.
 
-`configs/samples.csv` is a single-column CSV of CRAM paths.
-The sample name is derived from the CRAM basename.
+## Setup
+
+```bash
+cd cohort_gvcf_smk
+python -m venv venv
+source venv/bin/activate
+pip install -r REQUIREMENTS.txt
+```
+
+The workflow runs tools through the containers configured in the selected YAML
+file. It therefore requires Singularity and access to the referenced project
+filesystems.
+
+## Sample sheets
+
+`call_only` accepts the historical one-column ICGC-ARGO sheet:
+
+```csv
+cram_path
+/path/to/sample.cram
+```
+
+For new call-only datasets, use explicit sample names and indexes:
+
+```csv
+sample,alignment,index
+SAMPLE_1,/path/to/SAMPLE_1.cram,/path/to/SAMPLE_1.cram.crai
+```
+
+`realign_bam` requires:
+
+```csv
+sample,bam,bai,read_group_id,library,platform_unit
+SAMPLE_1,/path/to/SAMPLE_1.bam,/path/to/SAMPLE_1.bam.bai,SAMPLE_1.RG1,SAMPLE_1.LIB1,SAMPLE_1.PU1
+```
+
+`align_fastq` requires:
+
+```csv
+sample,r1,r2,read_group_id,library,platform_unit
+SAMPLE_1,/path/to/SAMPLE_1.R1.fastq.gz,/path/to/SAMPLE_1.R2.fastq.gz,SAMPLE_1.RG1,SAMPLE_1.LIB1,SAMPLE_1.PU1
+```
+
+Sample names and read-group fields may contain letters, numbers, periods,
+underscores, and hyphens.
 
 ## Run
 
+Always inspect a dry run before submitting work:
+
 ```bash
-snakemake --profile configs/smk_profiles/cookie_numbers/ all_targets --cores 24
+venv/bin/python -m snakemake \
+  --configfile configs/config.yaml \
+  --dry-run --printshellcmds all_targets --cores 1
 ```
+
+Submit the default call-only workflow:
+
+```bash
+sbatch sbatch.sh configs/config.yaml
+```
+
+Run the BWA-MEM benchmark-sample workflow for HG001 and SYNDIP:
+
+```bash
+venv/bin/python -m snakemake \
+  --configfile configs/config.benchmark_bwa.yaml \
+  --dry-run --printshellcmds all_targets --cores 1
+sbatch sbatch.sh configs/config.benchmark_bwa.yaml
+```
+
+This profile writes two independent indexed outputs:
+
+```text
+/projects/HostSeq/HostSeq_ext/data/outputs/benchmark_samples/bwa-mem-0.7.17-r1188/HG001/gatk-v4.2.5.0/HG001.g.vcf.gz
+/projects/HostSeq/HostSeq_ext/data/outputs/benchmark_samples/bwa-mem-0.7.17-r1188/SYNDIP/gatk-v4.2.5.0/SYNDIP.g.vcf.gz
+```
+
+For MoHCCN, copy `configs/config.mohccn.example.yaml` and
+`configs/samples.mohccn.example.csv`, replace the placeholder input paths and
+sample metadata, and retain `input_mode: realign_bam`. The BAM-to-FASTQ stage
+discards secondary, supplementary, unpaired, and singleton reads from the BWA
+input; review the retained alignment QC before using the gVCF downstream.
+
+## Configuration
+
+- `configs/config.yaml`: default ICGC-ARGO call-only profile; preserves the
+  existing output layout.
+- `configs/config.benchmark_bwa.yaml`: HG001 and SYNDIP BWA-MEM benchmark run.
+- `configs/config.mohccn.example.yaml`: template for BAM realignment projects.
+- `configs/smk_profiles/cookie_numbers/`: Slurm submission profile.
+- `snakefiles/align.snake`: optional read recovery, alignment, duplicate
+  marking, BQSR, and alignment QC.
+- `snakefiles/variant.snake`: interval-sharded HaplotypeCaller and final gVCF
+  concatenation.

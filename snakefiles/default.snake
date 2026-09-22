@@ -1,27 +1,13 @@
-#!/usr/bin/env python3
-# coding=utf-8
-
-__author__ = "Jean-Michel Garant"
-__copyright__ = "Copyright (C) 2022, " + __author__
-__email__ = "jmgarant@bcgsc.ca"
-__license__ = "GPLv3"
-
 include: "snakefiles/variant.snake"
 
+
 rule all_targets:
-    """
-    Call target files as input to launch them as default targets.
-    """
     input:
-        expand(os.path.join(config["output_dir"],
-                            "{sample}",
-                            "{sample}.g.vcf.gz",
-                            ),
-               sample=samples_table_cram("{wildcards}", keys_list=True),
-               ),
-        expand(os.path.join(config["output_dir"],
-                            "{sample}",
-                            "{sample}.g.vcf.gz.tbi",
-                            ),
-               sample=samples_table_cram("{wildcards}", keys_list=True),
-               ),
+        expand(
+            os.path.join(GVCF_DIR_PATTERN, "{sample}.g.vcf.gz"),
+            sample=SAMPLE_IDS,
+        ),
+        expand(
+            os.path.join(GVCF_DIR_PATTERN, "{sample}.g.vcf.gz.tbi"),
+            sample=SAMPLE_IDS,
+        ),

@@ -6,5 +6,10 @@
 #SBATCH --qos=prod
 #SBATCH --exclude=s[101-114]
 
-cd /home/rabraham/icgc_smk && \
-venv/bin/snakemake --profile configs/smk_profiles/cookie_numbers/ all_targets --cores 24
+set -euo pipefail
+
+cd /home/rabraham/cohort_gvcf_smk
+venv/bin/python -m snakemake \
+  --configfile "${1:-configs/config.yaml}" \
+  --profile configs/smk_profiles/cookie_numbers/ \
+  all_targets --cores 48

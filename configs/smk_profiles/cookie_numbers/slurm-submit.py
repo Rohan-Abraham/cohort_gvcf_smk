@@ -14,7 +14,7 @@ CLUSTER_CONFIG = CookieCutter.CLUSTER_CONFIG
 ADVANCED_ARGUMENT_CONVERSION = CookieCutter.get_advanced_argument_conversion()
 
 RESOURCE_MAPPING = {
-    "time": ("time", "runtime", "walltime"),
+    "time": ("time", "runtime", "walltime", "time_limit"),
     "mem": ("mem", "mem_mb", "ram", "memory"),
     "mem-per-cpu": ("mem-per-cpu", "mem_per_cpu", "mem_per_thread"),
     "nodes": ("nodes", "nnodes"),

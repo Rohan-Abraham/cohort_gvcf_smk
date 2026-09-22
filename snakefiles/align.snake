@@ -1,0 +1,203 @@
+rule bam_to_fastq:
+    """Recover primary paired reads from a BAM that requires realignment."""
+    input:
+        unpack(source_bam),
+    output:
+        r1=temp(os.path.join(TMP_DIR, "fastq", "{sample}.R1.fastq.gz")),
+        r2=temp(os.path.join(TMP_DIR, "fastq", "{sample}.R2.fastq.gz")),
+        singletons=temp(
+            os.path.join(TMP_DIR, "fastq", "{sample}.singletons.fastq.gz")
+        ),
+    log:
+        os.path.join("log", "{sample}", "bam_to_fastq.log"),
+    benchmark:
+        os.path.join("log", "{sample}", "bam_to_fastq.benchmark.txt"),
+    params:
+        worker_threads=lambda wildcards, threads: max(1, threads // 2),
+    container:
+        config["containers"]["hostseq_utilities"],
+    threads:
+        config["samtools"]["threads"],
+    resources:
+        mem_mb=config["samtools"]["mem_mb"],
+        time_limit=config["samtools"]["time_limit"],
+    shell:
+        r"""
+        mkdir -p $(dirname {output.r1:q}) $(dirname {log:q})
+        /opt/samtools-1.14/samtools quickcheck -v {input.bam:q} 2> {log:q}
+        /opt/samtools-1.14/samtools collate -f -@ {params.worker_threads} -u -O \
+          {input.bam:q} 2>> {log:q} | \
+          /opt/samtools-1.14/samtools fastq -@ {params.worker_threads} -F 0x900 -n \
+            -1 {output.r1:q} -2 {output.r2:q} -0 /dev/null \
+            -s {output.singletons:q} - 2>> {log:q}
+        """
+
+
+rule bwa_align:
+    """Align paired reads with BWA-MEM 0.7.17-r1188."""
+    input:
+        unpack(bwa_fastqs),
+        ref=REFERENCE_FASTA,
+        indexes=BWA_INDEXES,
+    output:
+        bam=temp(os.path.join(TMP_DIR, "alignment", "{sample}", "aligned.bam")),
+    log:
+        bwa=os.path.join("log", "{sample}", "bwa.log"),
+        sort=os.path.join("log", "{sample}", "sort.log"),
+    benchmark:
+        os.path.join("log", "{sample}", "bwa.benchmark.txt"),
+    params:
+        rgid=lambda wildcards: sample_field(wildcards, "read_group_id"),
+        library=lambda wildcards: sample_field(wildcards, "library"),
+        platform_unit=lambda wildcards: sample_field(wildcards, "platform_unit"),
+        sort_threads=lambda wildcards, threads: min(
+            config["bwa"]["sort_threads"], max(1, threads // 4)
+        ),
+        align_threads=lambda wildcards, threads: max(
+            1,
+            threads
+            - min(config["bwa"]["sort_threads"], max(1, threads // 4)),
+        ),
+        sort_prefix=os.path.join(TMP_DIR, "sort", "{sample}", "sort"),
+    container:
+        config["containers"]["hostseq_utilities"],
+    threads:
+        config["bwa"]["threads"],
+    resources:
+        mem_mb=config["bwa"]["mem_mb"],
+        time_limit=config["bwa"]["time_limit"],
+    shell:
+        r"""
+        mkdir -p $(dirname {output.bam:q}) $(dirname {log.bwa:q}) \
+          $(dirname {params.sort_prefix:q})
+        /opt/bwa-0.7.17/bwa mem -K 100000000 -Y -T 0 \
+          -t {params.align_threads} \
+          -R $'@RG\tID:{params.rgid}\tSM:{wildcards.sample}\tLB:{params.library}\tPL:ILLUMINA\tPU:{params.platform_unit}' \
+          {input.ref:q} {input.r1:q} {input.r2:q} \
+          2> {log.bwa:q} | \
+          /opt/samtools-1.14/samtools sort -@ {params.sort_threads} \
+            -T {params.sort_prefix:q} -o {output.bam:q} - \
+            2> {log.sort:q}
+        """
+
+
+rule mark_duplicates_and_restore_tags:
+    input:
+        bam=os.path.join(TMP_DIR, "alignment", "{sample}", "aligned.bam"),
+        ref=REFERENCE_FASTA,
+        ref_fai=REFERENCE_FAI,
+        ref_dict=REFERENCE_DICT,
+    output:
+        md_bam=temp(os.path.join(TMP_DIR, "alignment", "{sample}", "md.bam")),
+        tagged_bam=temp(
+            os.path.join(TMP_DIR, "alignment", "{sample}", "md.tagged.bam")
+        ),
+        tagged_bai=temp(
+            os.path.join(TMP_DIR, "alignment", "{sample}", "md.tagged.bai")
+        ),
+        metrics=os.path.join(QC_DIR_PATTERN, "mark_duplicates.metrics.txt"),
+    log:
+        markdup=os.path.join("log", "{sample}", "mark_duplicates.log"),
+        tags=os.path.join("log", "{sample}", "restore_tags.log"),
+    benchmark:
+        os.path.join("log", "{sample}", "mark_duplicates.benchmark.txt"),
+    params:
+        tmp_dir=os.path.join(TMP_DIR, "picard", "{sample}"),
+    container:
+        config["containers"]["broad_gatk"],
+    threads:
+        config["picard"]["threads"],
+    resources:
+        mem_mb=config["picard"]["mem_mb"],
+        time_limit=config["picard"]["time_limit"],
+    shell:
+        r"""
+        mkdir -p $(dirname {output.md_bam:q}) $(dirname {output.metrics:q}) \
+          $(dirname {log.markdup:q}) {params.tmp_dir:q}
+        /gatk/gatk --java-options "-Xmx90g -XX:+UseParallelGC" \
+          MarkDuplicates \
+          --INPUT {input.bam:q} --OUTPUT {output.md_bam:q} \
+          --METRICS_FILE {output.metrics:q} \
+          --OPTICAL_DUPLICATE_PIXEL_DISTANCE 2500 \
+          --COMPRESSION_LEVEL 0 --ASSUME_SORT_ORDER coordinate \
+          --CREATE_INDEX false --TMP_DIR {params.tmp_dir:q} \
+          2> {log.markdup:q}
+        /gatk/gatk --java-options "-Xmx90g -XX:+UseParallelGC" \
+          SetNmMdAndUqTags \
+          --INPUT {output.md_bam:q} --OUTPUT {output.tagged_bam:q} \
+          --REFERENCE_SEQUENCE {input.ref:q} --CREATE_INDEX true \
+          --TMP_DIR {params.tmp_dir:q} 2> {log.tags:q}
+        """
+
+
+rule base_recalibration:
+    input:
+        bam=os.path.join(TMP_DIR, "alignment", "{sample}", "md.tagged.bam"),
+        bai=os.path.join(TMP_DIR, "alignment", "{sample}", "md.tagged.bai"),
+        ref=REFERENCE_FASTA,
+        ref_fai=REFERENCE_FAI,
+        ref_dict=REFERENCE_DICT,
+        known_sites=KNOWN_SITES,
+        known_sites_index=KNOWN_SITES_INDEX,
+    output:
+        table=temp(os.path.join(TMP_DIR, "bqsr", "{sample}.recal.table")),
+        bam=temp(
+            os.path.join(TMP_DIR, "alignment", "{sample}", "{sample}.md.recal.bam")
+        ),
+        bai=temp(
+            os.path.join(TMP_DIR, "alignment", "{sample}", "{sample}.md.recal.bai")
+        ),
+    log:
+        recal=os.path.join("log", "{sample}", "base_recalibrator.log"),
+        apply=os.path.join("log", "{sample}", "apply_bqsr.log"),
+    benchmark:
+        os.path.join("log", "{sample}", "bqsr.benchmark.txt"),
+    container:
+        config["containers"]["broad_gatk"],
+    threads:
+        config["GATK"]["bqsr"]["threads"],
+    resources:
+        mem_mb=config["GATK"]["bqsr"]["mem_mb"],
+        time_limit=config["GATK"]["bqsr"]["time_limit"],
+    shell:
+        r"""
+        mkdir -p $(dirname {output.table:q}) $(dirname {output.bam:q}) \
+          $(dirname {log.recal:q})
+        /gatk/gatk --java-options "-Xmx44g -XX:+UseParallelGC" \
+          BaseRecalibrator --input {input.bam:q} --reference {input.ref:q} \
+          --known-sites {input.known_sites:q} --output {output.table:q} \
+          2> {log.recal:q}
+        /gatk/gatk --java-options "-Xmx44g -XX:+UseParallelGC" \
+          ApplyBQSR --input {input.bam:q} --reference {input.ref:q} \
+          --bqsr-recal-file {output.table:q} --output {output.bam:q} \
+          --create-output-bam-index true 2> {log.apply:q}
+        """
+
+
+rule alignment_qc:
+    """Retain compact evidence for the temporary BWA alignment."""
+    input:
+        bam=lambda wildcards: recalibrated_bam_path(wildcards.sample),
+        bai=lambda wildcards: recalibrated_bai_path(wildcards.sample),
+    output:
+        header=os.path.join(QC_DIR_PATTERN, "alignment.header.sam"),
+        flagstat=os.path.join(QC_DIR_PATTERN, "alignment.flagstat.txt"),
+        stats=os.path.join(QC_DIR_PATTERN, "alignment.stats.txt"),
+    log:
+        os.path.join("log", "{sample}", "alignment_qc.log"),
+    container:
+        config["containers"]["hostseq_utilities"],
+    threads:
+        config["samtools"]["threads"],
+    resources:
+        mem_mb=config["samtools"]["mem_mb"],
+        time_limit=config["samtools"]["time_limit"],
+    shell:
+        r"""
+        mkdir -p $(dirname {output.header:q}) $(dirname {log:q})
+        /opt/samtools-1.14/samtools view -H {input.bam:q} > {output.header:q}
+        /opt/samtools-1.14/samtools flagstat -@ {threads} {input.bam:q} \
+          > {output.flagstat:q} 2> {log:q}
+        /opt/samtools-1.14/samtools stats -@ {threads} {input.bam:q} \
+          > {output.stats:q} 2>> {log:q}
+        """

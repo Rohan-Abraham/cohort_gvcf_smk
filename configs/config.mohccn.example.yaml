@@ -1,0 +1,48 @@
+input_mode: realign_bam
+samples: configs/samples.mohccn.example.csv
+
+reference:
+  fasta: /projects/HostSeq/align_fasta_ref/Genome_England/GRCh38_full_analysis_set_plus_decoy_hla.fa
+  known_sites: /projects/HostSeq/align_fasta_ref/Genome_England/other_mapping_resources/ALL_20141222.dbSNP142_human_GRCh38.snps.vcf.gz
+
+paths:
+  tmp_dir: /projects/HostSeq/HostSeq_ext/scratch/mohccn
+  gvcf_dir: /projects/HostSeq/HostSeq_ext/data/outputs/MoHCCN/{sample}/gatk-v4.2.5.0
+  qc_dir: /projects/HostSeq/HostSeq_ext/data/outputs/MoHCCN/{sample}/alignment-qc
+
+bwa:
+  threads: 48
+  sort_threads: 8
+  mem_mb: 49152
+  time_limit: 7200
+
+samtools:
+  threads: 8
+  mem_mb: 8192
+  time_limit: 1440
+
+picard:
+  threads: 8
+  mem_mb: 96000
+  time_limit: 2880
+
+GATK:
+  bqsr:
+    threads: 8
+    mem_mb: 48000
+    time_limit: 2880
+  haplotypecaller:
+    dragen_mode: true
+    threads: 6
+    mem_mb: 26000
+    time_limit: 2880
+    interval_dir: configs/chr_intervals
+    interval_ids: [chr1, chr2, chr3, chr4, chr5, chr6, chr7, chr8, chr9, chr10, chr11, chr12, chr13, chr14, chr15, chr16, chr17, chr18, chr19, chr20, chr21, chr22, chrX, chrY-M, chrAlt-Decoy]
+  merge:
+    threads: 4
+    mem_mb: 8000
+    time_limit: 360
+
+containers:
+  hostseq_utilities: docker://jmgarant/hostseq_utils:0.3
+  broad_gatk: docker://broadinstitute/gatk:4.2.5.0

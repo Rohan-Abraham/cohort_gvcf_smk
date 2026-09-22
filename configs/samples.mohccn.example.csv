@@ -1,0 +1,2 @@
+sample,bam,bai,read_group_id,library,platform_unit
+MOHCCN_EXAMPLE,/path/to/MOHCCN_EXAMPLE.hg38_no_alt.bam,/path/to/MOHCCN_EXAMPLE.hg38_no_alt.bam.bai,MOHCCN_EXAMPLE.RG1,MOHCCN_EXAMPLE.LIB1,MOHCCN_EXAMPLE.PU1

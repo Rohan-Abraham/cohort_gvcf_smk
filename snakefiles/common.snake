@@ -1,54 +1,172 @@
-#!/usr/bin/env python3
-# coding=utf-8
-
-"""
-Input functions for *.snake rules.
-"""
-
-__author__ = "Jean-Michel Garant"
-__copyright__ = "Copyright (C) 2022, " + __author__
-__email__ = "jmgarant@bcgsc.ca"
-__license__ = "GPLv3"
-
+import csv
 import os
 import re
-from csv import reader
+
+from snakemake.exceptions import WorkflowError
+
 
 configfile: "configs/config.yaml"
 
-# Default tmp_dir in the current directory.
-if type(config["tmp_dir"]) == type(None):
-    config["tmp_dir"] = ""
+SUPPORTED_INPUT_MODES = {"call_only", "realign_bam", "align_fastq"}
+INPUT_MODE = config.get("input_mode", "call_only")
+if INPUT_MODE not in SUPPORTED_INPUT_MODES:
+    raise WorkflowError(
+        f"Unsupported input_mode {INPUT_MODE!r}; choose from "
+        f"{', '.join(sorted(SUPPORTED_INPUT_MODES))}"
+    )
 
-# ICGC-ARGO CRAM filenames follow
-# {project}.{donor_id}.{sample_id}.wgs.{date}.aln.cram
-# e.g. APGI-AU.DO32825.SA407795.wgs.20210617.aln.cram
-# The project code is shared by every sample in a project, so it cannot be
-# used as a unique sample identifier (unlike HostSeq's naming convention).
-# Use the donor+sample IDs (e.g. "DO32825.SA407795") instead.
+SAFE_LABEL = re.compile(r"^[A-Za-z0-9_.-]+$")
 DONOR_SAMPLE_RE = re.compile(r"\.(DO[A-Za-z0-9]+\.SA[A-Za-z0-9]+)\.")
+MODE_COLUMNS = {
+    "call_only": {"sample", "alignment", "index"},
+    "realign_bam": {
+        "sample",
+        "bam",
+        "bai",
+        "read_group_id",
+        "library",
+        "platform_unit",
+    },
+    "align_fastq": {
+        "sample",
+        "r1",
+        "r2",
+        "read_group_id",
+        "library",
+        "platform_unit",
+    },
+}
 
 
-def _sample_id_from_cram(cram_path):
-    basename = os.path.basename(cram_path)
+def sample_id_from_alignment(path):
+    """Derive the historical ICGC donor/sample identifier from a CRAM path."""
+    basename = os.path.basename(path)
     match = DONOR_SAMPLE_RE.search(basename)
-    if match:
-        return match.group(1)
-    # Fallback for filenames that don't match the expected ICGC-ARGO pattern.
-    return basename.split(".")[0]
+    return match.group(1) if match else basename.split(".")[0]
 
 
-def samples_table_cram(wildcards, keys_list=False):
-    samples = {}
-    with open(config["samples"], "r") as handle:
-        iterator = reader(handle, delimiter=",")
-        next(iterator, None)
-        for row in iterator:
-            sample = _sample_id_from_cram(row[0])
-            samples[sample] = row[0]
-    if keys_list:
-        return sorted(samples.keys())
+def load_samples(path, input_mode):
+    if not os.path.isfile(path):
+        raise WorkflowError(f"Sample sheet does not exist: {path}")
+
+    with open(path, newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = set(reader.fieldnames or [])
+        legacy_icgc = input_mode == "call_only" and fieldnames == {"cram_path"}
+        required = MODE_COLUMNS[input_mode]
+        if not legacy_icgc:
+            missing = required.difference(fieldnames)
+            if missing:
+                raise WorkflowError(
+                    f"{input_mode} sample sheet is missing columns: "
+                    f"{', '.join(sorted(missing))}"
+                )
+
+        samples = {}
+        for line_number, raw_row in enumerate(reader, start=2):
+            row = {key: (value or "").strip() for key, value in raw_row.items()}
+            if not any(row.values()):
+                continue
+            if legacy_icgc:
+                alignment = row["cram_path"]
+                row = {
+                    "sample": sample_id_from_alignment(alignment),
+                    "alignment": alignment,
+                    "index": alignment + ".crai",
+                }
+            elif any(not row[column] for column in required):
+                raise WorkflowError(f"Incomplete sample-sheet row {line_number}")
+
+            sample = row["sample"]
+            if not SAFE_LABEL.fullmatch(sample):
+                raise WorkflowError(
+                    f"Unsafe sample value on row {line_number}: {sample}"
+                )
+            for column in ("read_group_id", "library", "platform_unit"):
+                if column in row and not SAFE_LABEL.fullmatch(row[column]):
+                    raise WorkflowError(
+                        f"Unsafe {column} value on row {line_number}: {row[column]}"
+                    )
+            if sample in samples:
+                raise WorkflowError(f"Duplicate sample ID in sample sheet: {sample}")
+            if input_mode == "realign_bam" and not row["bam"].endswith(".bam"):
+                raise WorkflowError(
+                    f"realign_bam requires BAM input on row {line_number}: "
+                    f"{row['bam']}"
+                )
+            samples[sample] = row
+
+    if not samples:
+        raise WorkflowError(f"No samples found in {path}")
+    return samples
+
+
+SAMPLES = load_samples(config["samples"], INPUT_MODE)
+SAMPLE_IDS = sorted(SAMPLES)
+
+REFERENCE_FASTA = config["reference"]["fasta"]
+REFERENCE_FAI = REFERENCE_FASTA + ".fai"
+REFERENCE_DICT = os.path.splitext(REFERENCE_FASTA)[0] + ".dict"
+BWA_INDEXES = [
+    REFERENCE_FASTA + extension
+    for extension in (".amb", ".ann", ".bwt", ".pac", ".sa")
+]
+KNOWN_SITES = config["reference"]["known_sites"]
+KNOWN_SITES_INDEX = KNOWN_SITES + ".tbi"
+TMP_DIR = config["paths"]["tmp_dir"]
+GVCF_DIR_PATTERN = config["paths"]["gvcf_dir"].format(sample="{sample}")
+QC_DIR_PATTERN = config["paths"]["qc_dir"].format(sample="{sample}")
+INTERVAL_IDS = config["GATK"]["haplotypecaller"]["interval_ids"]
+
+
+def sample_field(wildcards, field):
+    return SAMPLES[wildcards.sample][field]
+
+
+def source_alignment(wildcards):
+    row = SAMPLES[wildcards.sample]
+    return {"alignment": row["alignment"], "index": row["index"]}
+
+
+def source_bam(wildcards):
+    row = SAMPLES[wildcards.sample]
+    return {"bam": row["bam"], "bai": row["bai"]}
+
+
+def recovered_fastq_path(sample, mate):
+    return os.path.join(TMP_DIR, "fastq", f"{sample}.R{mate}.fastq.gz")
+
+
+def bwa_fastqs(wildcards):
+    if INPUT_MODE == "align_fastq":
+        row = SAMPLES[wildcards.sample]
+        return {"r1": row["r1"], "r2": row["r2"]}
+    if INPUT_MODE == "realign_bam":
+        return {
+            "r1": recovered_fastq_path(wildcards.sample, 1),
+            "r2": recovered_fastq_path(wildcards.sample, 2),
+        }
+    raise WorkflowError("BWA inputs requested while input_mode is call_only")
+
+
+def recalibrated_bam_path(sample):
+    return os.path.join(TMP_DIR, "alignment", sample, f"{sample}.md.recal.bam")
+
+
+def recalibrated_bai_path(sample):
+    return os.path.join(TMP_DIR, "alignment", sample, f"{sample}.md.recal.bai")
+
+
+def calling_alignment(wildcards):
+    if INPUT_MODE == "call_only":
+        return source_alignment(wildcards)
     return {
-        "cram": samples[wildcards.sample],
-        "crai": samples[wildcards.sample] + ".crai",
+        "alignment": recalibrated_bam_path(wildcards.sample),
+        "index": recalibrated_bai_path(wildcards.sample),
     }
+
+
+def alignment_qc_dependency(wildcards):
+    if INPUT_MODE == "call_only":
+        return []
+    return [os.path.join(QC_DIR_PATTERN, "alignment.flagstat.txt")]
