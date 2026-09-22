@@ -97,6 +97,19 @@ venv/bin/python -m snakemake \
 sbatch sbatch.sh configs/config.benchmark_bwa.yaml
 ```
 
+On `hostseq01`, where the Slurm client may not be available, run the same
+profile locally in a persistent shell. Set the core and memory ceilings for the
+host rather than copying these values to a smaller machine:
+
+```bash
+venv/bin/python -m snakemake \
+  --configfile configs/config.benchmark_bwa.yaml \
+  --use-singularity --singularity-args '-B /projects' \
+  --cores 96 --resources mem_mb=1000000 time_limit=20000 \
+  --rerun-incomplete --keep-going --printshellcmds --latency-wait 60 \
+  all_targets
+```
+
 This profile writes two independent indexed outputs:
 
 ```text
