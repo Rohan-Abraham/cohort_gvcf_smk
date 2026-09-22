@@ -21,6 +21,28 @@ The alignment path uses BWA-MEM 0.7.17-r1188 against
 HaplotypeCaller in DRAGEN mode with `AS_StandardAnnotation`, matching the
 ICGC-ARGO gVCF calling configuration.
 
+## Compatibility contract
+
+The BWA and BAM-realignment modes deliberately reuse the analytically relevant
+HostSeq processing contract after alignment:
+
+- the same GRCh38 full analysis set plus decoy/HLA reference and dbSNP142
+  known-sites resource;
+- byte-identical interval contents;
+- GATK 4.2.5.0 MarkDuplicates, `SetNmMdAndUqTags`, BQSR, and HaplotypeCaller;
+- the HostSeq HaplotypeCaller filtering, pair-HMM, DRAGEN-mode, and gVCF
+  options; and
+- bcftools 1.14 concatenation and tabix indexing.
+
+`AS_StandardAnnotation` is intentionally added for ICGC-ARGO and future cohort
+compatibility. HostSeq's diagnostic HaplotypeCaller BAM is not generated because
+it does not affect the gVCF. JVM sizing, thread counts, disk intermediates, and
+compression mechanics may differ without changing this analytical contract.
+
+For aligned inputs, retained QC mirrors HostSeq: duplicate metrics, samtools
+stats, flagstat, idxstat, coverage, and sambamba-bamStats. The alignment header
+is also retained. Alignment BAMs remain temporary.
+
 Alignment BAMs, their indexes, recovered FASTQs, BQSR tables, and per-interval
 gVCFs are temporary Snakemake outputs. The final gVCF and index, alignment QC,
 duplicate metrics, rule logs, and benchmarks are retained. The input BAM is
@@ -37,7 +59,9 @@ pip install -r REQUIREMENTS.txt
 
 The workflow runs tools through the containers configured in the selected YAML
 file. It therefore requires Singularity and access to the referenced project
-filesystems.
+filesystems. Alignment modes also require the internal
+`sambamba-bamStats_v0.4.0` executable configured under `tools` because no
+container is available for that HostSeq QC program.
 
 ## Sample sheets
 

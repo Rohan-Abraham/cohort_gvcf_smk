@@ -22,6 +22,10 @@ samtools:
   mem_mb: 8192
   time_limit: 1440
 
+qc:
+  # Match the value used by HostSeq sambamba-bamStats for this reference.
+  genome_size: 2934876451
+
 picard:
   threads: 8
   mem_mb: 96000
@@ -72,3 +76,6 @@ GATK:
 containers:
   hostseq_utilities: docker://jmgarant/hostseq_utils:0.3
   broad_gatk: docker://broadinstitute/gatk:4.2.5.0
+
+tools:
+  sambamba_bamstats: /gsc/QA-bio/sbs-solexa/opt/linux-x86_64/sambamba-bamStats_v0.4.0

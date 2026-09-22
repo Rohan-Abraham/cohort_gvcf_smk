@@ -117,6 +117,8 @@ TMP_DIR = config["paths"]["tmp_dir"]
 GVCF_DIR_PATTERN = config["paths"]["gvcf_dir"].format(sample="{sample}")
 QC_DIR_PATTERN = config["paths"]["qc_dir"].format(sample="{sample}")
 INTERVAL_IDS = config["GATK"]["haplotypecaller"]["interval_ids"]
+SAMBAMBA_BAMSTATS = config["tools"]["sambamba_bamstats"]
+QC_GENOME_SIZE = config["qc"]["genome_size"]
 
 
 def sample_field(wildcards, field):
@@ -166,7 +168,10 @@ def calling_alignment(wildcards):
     }
 
 
-def alignment_qc_dependency(wildcards):
+def alignment_qc_dependencies(wildcards):
     if INPUT_MODE == "call_only":
         return []
-    return [os.path.join(QC_DIR_PATTERN, "alignment.flagstat.txt")]
+    return [
+        os.path.join(QC_DIR_PATTERN, "alignment.flagstat.txt"),
+        os.path.join(QC_DIR_PATTERN, "alignment.bamstat.txt"),
+    ]
