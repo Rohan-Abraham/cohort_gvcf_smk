@@ -72,7 +72,7 @@ rule bwa_align:
           $(dirname {params.sort_prefix:q})
         /opt/bwa-0.7.17/bwa mem -K 100000000 -Y -T 0 \
           -t {params.align_threads} \
-          -R $'@RG\tID:{params.rgid}\tSM:{wildcards.sample}\tLB:{params.library}\tPL:ILLUMINA\tPU:{params.platform_unit}' \
+          -R '@RG\tID:{params.rgid}\tSM:{wildcards.sample}\tLB:{params.library}\tPL:ILLUMINA\tPU:{params.platform_unit}' \
           {input.ref:q} {input.r1:q} {input.r2:q} \
           2> {log.bwa:q} | \
           /opt/samtools-1.14/samtools sort -@ {params.sort_threads} \
