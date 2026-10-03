@@ -3,3 +3,7 @@ log/
 .snakemake/
 __pycache__/
 *.pyc
+
+# Cohort sample manifests contain local input paths and are not repository data.
+/configs/samples.csv
+/configs/samples_*.csv

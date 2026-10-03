@@ -96,6 +96,12 @@ SAMPLE_1,/path/to/SAMPLE_1.R1.fastq.gz,/path/to/SAMPLE_1.R2.fastq.gz,SAMPLE_1.RG
 Sample names and read-group fields may contain letters, numbers, periods,
 underscores, and hyphens.
 
+Operational cohort manifests are local artifacts and are intentionally ignored
+by Git. Create `configs/samples.csv` locally before using the default
+`configs/config.yaml`, or point `samples` in a copied configuration file to a
+different local manifest. The tracked benchmark and MoHCCN sample sheets are
+small fixtures and examples.
+
 ## Run
 
 Always inspect a dry run before submitting work:
